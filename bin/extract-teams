@@ -1,0 +1,14 @@
+#!/usr/bin/perl
+use autodie;
+use strict;
+use warnings;
+
+while (my $file = <./TEAM*>) {
+  my ($year) = $file =~ /TEAM(\d{4})/;
+  open my $fh, '<', $file;
+  while (my $line = <$fh>) {
+    chomp $line;
+    $line =~ s/\s+$//;
+    print "$line,$year\n";
+  }
+}

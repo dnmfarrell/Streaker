@@ -1,0 +1,57 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use DBI;
+use Getopt::Long 'GetOptions';
+use List::Util 'sum0';
+
+GetOptions(
+  'user=s' => \(my $user = $ENV{STREAKER_USER}),
+  'pass=s' => \(my $pass = $ENV{STREAKER_PASS}),
+);
+die "database --user and --password not provided\n" unless $user && $pass;
+
+my $dsn = 'DBI:MariaDB:database=streaker;host=localhost';
+my $dbh = DBI->connect($dsn, $user, $pass, {RaiseError => 1, AutoCommit => 0});
+
+my $minmax_year = $dbh->selectall_arrayref('select min(year) mn, max(year) mx from game');
+for my $year ($minmax_year->[0][0]..$minmax_year->[0][1]) {
+  my $select = '
+    select
+      a.game_id,
+      a.bat_team_id,
+      a.bat_id,
+      max(a.bat_lineup_id) bat_lineup_id,
+      count(1) as ab,
+      sum(a.slg_cd) as slg,
+      sum(a.hit_fl) as h,
+      sum(a.ob_fl) as ob
+    from ab a
+    join game g using(game_id)
+    where g.year = ?
+    group by 1,2,3
+    order by a.ab_id
+  ';
+
+  my $sth = $dbh->prepare($select);
+  $sth->execute($year);
+
+  my %stats = ();
+  while (my $r = $sth->fetchrow_hashref) {
+    my $batter_stats = $stats{$r->{bat_id}} //= { ab => 0, h => 0, slg => 0, ob => 0, last10 => [] };
+    my $slg = $batter_stats->{ab} ? sprintf('%.3f', $batter_stats->{slg} / $batter_stats->{ab}) : 0;
+    my $hp = $batter_stats->{ab} ? sprintf('%.3f', $batter_stats->{h} / $batter_stats->{ab}) : 0;
+    my $obp = $batter_stats->{ab} ? sprintf('%.3f', $batter_stats->{ob} / $batter_stats->{ab}) : 0;
+    my $last10 = sum0 @{$batter_stats->{last10}};
+    print join(',', $r->{game_id}, $r->{bat_team_id}, $r->{bat_lineup_id}, $r->{bat_id}, $batter_stats->{ab}, $r->{h}, $r->{ob}, $slg, $hp, $obp, $last10),"\n";
+
+    $batter_stats->{ab}   += $r->{ab};
+    $batter_stats->{slg}  += $r->{slg};
+    $batter_stats->{h}    += $r->{h};
+    $batter_stats->{ob}   += $r->{ob};
+
+    shift @{$batter_stats->{last10}} if @{$batter_stats->{last10}} == 10;
+    push @{$batter_stats->{last10}}, $r->{h} ? 1 : 0;
+  }
+}
+$dbh->disconnect;

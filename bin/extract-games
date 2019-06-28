@@ -1,0 +1,9 @@
+#!/usr/bin/perl
+use autodie;
+use strict;
+use warnings;
+
+while (my $file = <./*.EV?>) {
+  my ($year, $team) = $file =~ /(\d{4})(\w{3})/;
+  system "cwgame -y $year -f 0-83 $file >> game.csv";
+}

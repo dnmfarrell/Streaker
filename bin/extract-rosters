@@ -1,0 +1,14 @@
+#!/usr/bin/perl
+use autodie;
+use strict;
+use warnings;
+
+while (my $file = <./*.ROS>) {
+  my ($team, $year) = $file =~ /(\w{3})(\d{4})\.ROS/;
+  open my $fh, '<', $file;
+  while (my $line = <$fh>) {
+    chomp $line;
+    $line =~ s/\s+$//;
+    print "$line,$year\n";
+  }
+}

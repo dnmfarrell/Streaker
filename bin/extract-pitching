@@ -1,0 +1,49 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use DBI;
+use Getopt::Long 'GetOptions';
+
+GetOptions(
+  'user=s' => \(my $user = $ENV{STREAKER_USER}),
+  'pass=s' => \(my $pass = $ENV{STREAKER_PASS}),
+);
+die "database --user and --password not provided\n" unless $user && $pass;
+
+my $dsn = 'DBI:MariaDB:database=streaker;host=localhost';
+my $dbh = DBI->connect($dsn, $user, $pass, {RaiseError => 1, AutoCommit => 0});
+
+my $minmax_year = $dbh->selectall_arrayref('select min(year) mn, max(year) mx from game');
+for my $year ($minmax_year->[0][0]..$minmax_year->[0][1]) {
+  my $select = '
+    select
+      a.game_id,
+      a.pit_team_id,
+      a.bat_team_id,
+      a.pit_id,
+      case when a.pit_id in (g.away_start_pit_id, g.home_start_pit_id)
+           then 1
+           else 0 end as pit_start_fl,
+      count(1) as ab,
+      sum(a.hit_fl) as h
+    from ab a
+    join game g using(game_id)
+    where g.year = ?
+    group by 1,2,3,4,5
+    order by a.ab_id
+  ';
+
+  my $sth = $dbh->prepare($select);
+  $sth->execute($year);
+
+  my %stats = ();
+  while (my $r = $sth->fetchrow_hashref) {
+    my $pit_stats = $stats{$r->{pit_id}} //= { ab => 0, h => 0 };
+    my $hp = $pit_stats->{ab} ? sprintf( '%.3f', $pit_stats->{h} / $pit_stats->{ab}) : 0;
+    print join(',', $r->{game_id}, $r->{pit_team_id}, $r->{bat_team_id}, $r->{pit_id}, $r->{pit_start_fl}, $pit_stats->{ab}, $r->{h}, $hp),"\n";
+
+    $pit_stats->{ab} += $r->{ab};
+    $pit_stats->{h} += $r->{h};
+  }
+}
+$dbh->disconnect;
